@@ -1,0 +1,167 @@
+rm(list = ls(all = TRUE))
+setwd("~/Desktop/Thesis/R")
+
+library(car) #vif
+library(caret) #precision, recall, confusion matrix, F meas
+library(haven) #read_sav
+library(graphics) #boxplot
+library(mitml) #clusterMeans
+library(pROC) #ROC, AUC
+library(sjlabelled) #remove_all_labels
+library(stats) #cooks.distance, glm, cor.test, rstudents
+
+set.seed(235711)
+
+data <- read_sav("Dataset_HealthBehavAcadPerfAffect.sav")
+dat <- remove_all_labels(data)
+
+#Checking for outliers
+summary(dat$PhysAct)
+summary(dat$SQ)
+summary(dat$BDI)
+#SQ and BDI within range of likert scale
+
+boxplot(dat$PhysAct, ylab = "PhysAct")
+summary(dat$PhysAct)
+outliers <- boxplot.stats(dat$PhysAct)$out
+sort(outliers)
+dat[dat$PhysAct>2300,]
+#Looks like the person with ID 26 has many high physical acitivity values, could be someone that sports a lot
+#Outliers were kept, since it is plausible that this person exercises a lot.
+
+#Calculating the means across individuals
+i.SQ <- clusterMeans(dat$SQ, dat$ID)
+i.PhysAct <- clusterMeans(dat$PhysAct, dat$ID)
+dat <- cbind(dat, i.SQ)
+dat <- cbind(dat, i.PhysAct)
+
+#Converting the data from long to wide
+newdata <- subset(dat, Day==30, 
+                  select=c(ID, Sex, Age, Sem, Exam, HSG, BDI, i.SQ, i.PhysAct))
+newdata2 <- subset(dat, ID==39 & Day==4,
+                   select=c(ID, Sex, Age, Sem, Exam, HSG, BDI, i.SQ, i.PhysAct))
+newdata3 <- subset(dat, ID==40 & Day==4,
+                   select=c(ID, Sex, Age, Sem, Exam, HSG, BDI, i.SQ, i.PhysAct))
+newdata4 <- subset(dat, ID==80 & Day==4,
+                   select=c(ID, Sex, Age, Sem, Exam, HSG, BDI, i.SQ, i.PhysAct))
+D = rbind(newdata, newdata2, newdata3, newdata4)
+
+#Descriptive statistics
+summary(D)
+sd(D$Sex, na.rm = TRUE)
+sd(D$Age, na.rm = TRUE)
+sd(D$i.SQ, na.rm = TRUE)
+sd(D$i.PhysAct, na.rm = TRUE)
+sd(D$BDI, na.rm = TRUE)
+sd(D$Exam, na.rm = TRUE)
+
+#Exporting and importing the data frame such that the row values will range from 1:72 instead of 1:2111
+write.csv(D,"~/Desktop/Thesis/R/data.csv", row.names = FALSE)
+D <- read.csv("~/Desktop/Thesis/R/data.csv")
+
+boxplot(D$i.PhysAct, ylab = "PhysAct")
+boxplot.stats(D$i.PhysAct)$out
+
+D$Sex <- as.factor(D$Sex)
+D$Sem <- as.factor(D$Sem)
+D$Exam <- as.factor(D$Exam)
+
+#Handling missing values
+mean(D$BDI, na.rm=TRUE)
+D$BDI[is.na(D$BDI)] <- mean(D$BDI, na.rm=TRUE)
+
+##--Assumption checking---------------------------------------------------------
+#Influential observations (Cook's D and studentized residuals)
+out <- glm(Exam ~ i.PhysAct + i.SQ + BDI, family = "binomial", data=D)
+CookD <- cooks.distance(out)
+CookD
+plot(CookD)
+#looks like there are lots of outliers, let's inspect them
+
+findBiggest <- function(x, n)
+  as.numeric(names(sort(x, decreasing = TRUE)[1 : n]))
+badCookD <- findBiggest(CookD, 1)
+badCookD
+for (i in badCookD){
+  print(D[i,])
+}
+#The observation that is detected by Cook's D is observation 72.
+#This person has a very high sleeping quality (close to 4). However, this is a plausible value.
+
+sr <- rstudent(out)
+#Create an index plot of the residuals
+plot(sr)
+
+#No multicollinearity assumption
+vif(out)
+
+##--Hypothesis testing----------------------------------------------------------
+#RQ1
+RQ1 <- glm(Exam ~ i.PhysAct, family="binomial", data=D)
+summary(RQ1)
+
+#RQ2.1
+RQ2.1 <- glm(Exam ~ i.SQ, family="binomial", data=D)
+summary(RQ2.1)
+
+#RQ2.2
+RQ2.2 <- glm(Exam ~ BDI, family="binomial", data=D)
+summary(RQ2.2)
+
+#RQ2.3
+cor.test(D$i.SQ, D$BDI)
+
+##--Prediction model------------------------------------------------------------
+##--Selecting the optimal model based on AIC------------------------------------
+#Randomly split the data into training and test set
+sample <- sample(c("train", "test"), nrow(D), replace=TRUE, prob=c(0.7,0.3))
+tmp <- split(D, sample)
+train <- tmp$train
+test  <- tmp$test
+
+#Observing the training and test data
+table(train$Exam) #training data is balanced
+table(test$Exam) #test data is not balanced
+
+#Testing different models
+#One predictor
+M1 <- glm(Exam ~ i.PhysAct, family="binomial", data=train)
+summary(M1)
+#AIC = 75.351
+M2 <- glm(Exam ~ i.SQ, family="binomial", data=train)
+summary(M2)
+#AIC = 74.749
+M3 <- glm(Exam ~ BDI, family="binomial", data=train)
+summary(M3)
+#AIC = 73.563
+#This model has the lowest AIC
+
+#Combination of two predictors
+M23 <- glm(Exam ~ i.SQ + BDI, family="binomial", data=train)
+summary(M23)
+#AIC = 74.936
+M13 <- glm(Exam ~ i.PhysAct + BDI, family="binomial", data=train)
+summary(M13)
+#AIC = 74.633
+
+##--Training and evaluating the model-------------------------------------------
+#Train and predict
+model0 <- train(Exam ~ BDI, family="binomial", method="glm", data=train)
+summary(model0)
+preds <- predict(model0, test)
+
+#Confusion matrix and evaluation metrics
+confusionMatrix(preds, test$Exam)
+tableP_Y <- table(preds, test$Exam)
+
+#Precision, recall, F-score
+precision(test$Exam, preds, cutoff = 0)
+recall(test$Exam, preds, cutoff = 0)
+F_meas(tableP_Y)
+
+#ROC curve
+test$Exam <- as.numeric(as.character(test$Exam))
+preds <- as.numeric(as.character(preds))
+ROC <- roc(test$Exam, preds)
+plot(ROC, print.auc=TRUE)
+auc(ROC)
