@@ -76,7 +76,7 @@ out <- glm(Exam ~ i.PhysAct + i.SQ + BDI, family = "binomial", data=D)
 CookD <- cooks.distance(out)
 CookD
 plot(CookD)
-#looks like there are lots of outliers, let's inspect them
+#looks like there are is one extreme outlier, let's inspect it
 
 findBiggest <- function(x, n)
   as.numeric(names(sort(x, decreasing = TRUE)[1 : n]))
