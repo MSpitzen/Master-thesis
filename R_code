@@ -175,7 +175,7 @@ F_meas(y_predNB, test$Exam)
 #ROC curve
 y_predNB <- as.numeric(as.character(y_predNB))
 ROCNB <- roc(y_predNB, yTruth)
-plot(ROCNB, print.auc=TRUE)
+plot(ROCNB, print.auc=TRUE,xlab="Naive Bayes")
 auc(ROCNB)
 
 ##--Logistic regresion----------------------------------------------------------
@@ -196,7 +196,7 @@ F_meas(y_predLR, test$Exam)
 #ROC curve
 y_predLR <- as.numeric(as.character(y_predLR))
 ROCLR <- roc(y_predLR, yTruth)
-plot(ROCLR, print.auc=TRUE)
+plot(ROCLR, print.auc=TRUE, xlab="Logistic Regression")
 auc(ROCLR)
 
 ##--Support Vector Machine------------------------------------------------------
@@ -232,7 +232,7 @@ F_meas(y_predSVM, test$Exam)
 #ROC curve
 y_predSVM <- as.numeric(as.character(y_predSVM))
 ROCSVM <- roc(y_predSVM, yTruth)
-plot(ROCSVM, print.auc=TRUE)
+plot(ROCSVM, print.auc=TRUE,xlab="SVM")
 auc(ROCSVM)
 
 ##--K-Nearest Neighbour---------------------------------------------------------
@@ -264,5 +264,6 @@ F_meas(y_predsKNN, test$Exam)
 #ROC curve
 y_predsKNN <- as.numeric(as.character(y_predsKNN))
 ROCKNN <- roc(y_predsKNN, yTruth)
-plot(ROCKNN, print.auc=TRUE)
+plot(ROCKNN, print.auc=TRUE,xlab="k-NN")
 auc(ROCKNN)
+
