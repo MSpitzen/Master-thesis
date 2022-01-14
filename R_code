@@ -2,13 +2,17 @@ rm(list = ls(all = TRUE))
 setwd("~/Desktop/Thesis/R")
 
 library(car) #vif
-library(caret) #precision, recall, confusion matrix, F meas
+library(caret) #precision, recall, confusion matrix, F meas, preProcess
+library(class) #knn
+library(e1071) #naiveBayes, svm, tune
 library(haven) #read_sav
 library(graphics) #boxplot
 library(mitml) #clusterMeans
 library(pROC) #ROC, AUC
 library(sjlabelled) #remove_all_labels
-library(stats) #cooks.distance, glm, cor.test, rstudents
+library(stats) #cooks.distance, glm, cor.test, rstudents, predict
+
+library(ggpubr)
 
 set.seed(235711)
 
@@ -62,15 +66,36 @@ D <- read.csv("~/Desktop/Thesis/R/data.csv")
 boxplot(D$i.PhysAct, ylab = "PhysAct")
 boxplot.stats(D$i.PhysAct)$out
 
-D$Sex <- as.factor(D$Sex)
-D$Sem <- as.factor(D$Sem)
-D$Exam <- as.factor(D$Exam)
-
 #Handling missing values
 mean(D$BDI, na.rm=TRUE)
 D$BDI[is.na(D$BDI)] <- mean(D$BDI, na.rm=TRUE)
 
+cor.test(D$BDI, D$Exam)
+cor.test(D$i.SQ, D$Exam)
+cor.test(D$i.PhysAct, D$Exam)
+
+D$Sex <- as.factor(D$Sex)
+D$Sem <- as.factor(D$Sem)
+D$Exam <- as.factor(D$Exam)
+
+##--Hypothesis testing----------------------------------------------------------
+#RQ1
+RQ1PA <- glm(Exam ~ i.PhysAct, family="binomial", data=D)
+summary(RQ1PA)
+
+RQ1SQ <- glm(Exam ~ i.SQ, family="binomial", data=D)
+summary(RQ1SQ)
+
+RQ1BDI <- glm(Exam ~ BDI, family="binomial", data=D)
+summary(RQ1BDI)
+
+#RQ1.1
+cor.test(D$i.PhysAct, D$i.SQ)
+cor.test(D$i.PhysAct, D$BDI)
+cor.test(D$i.SQ, D$BDI)
+
 ##--Assumption checking---------------------------------------------------------
+#Influential observations (Cook's D and studentized residuals)
 #Influential observations (Cook's D and studentized residuals)
 out <- glm(Exam ~ i.PhysAct + i.SQ + BDI, family = "binomial", data=D)
 CookD <- cooks.distance(out)
@@ -95,24 +120,7 @@ plot(sr)
 #No multicollinearity assumption
 vif(out)
 
-##--Hypothesis testing----------------------------------------------------------
-#RQ1
-RQ1 <- glm(Exam ~ i.PhysAct, family="binomial", data=D)
-summary(RQ1)
-
-#RQ2.1
-RQ2.1 <- glm(Exam ~ i.SQ, family="binomial", data=D)
-summary(RQ2.1)
-
-#RQ2.2
-RQ2.2 <- glm(Exam ~ BDI, family="binomial", data=D)
-summary(RQ2.2)
-
-#RQ2.3
-cor.test(D$i.SQ, D$BDI)
-
-##--Prediction model------------------------------------------------------------
-##--Selecting the optimal model based on AIC------------------------------------
+##--Feature Selection-----------------------------------------------------------
 #Randomly split the data into training and test set
 sample <- sample(c("train", "test"), nrow(D), replace=TRUE, prob=c(0.7,0.3))
 tmp <- split(D, sample)
@@ -123,7 +131,10 @@ test  <- tmp$test
 table(train$Exam) #training data is balanced
 table(test$Exam) #test data is not balanced
 
-#Testing different models
+test$Exam <- as.factor(test$Exam)
+yTruth <- as.numeric(as.character(test$Exam))
+
+#Testing different models and select them based on their AIC values
 #One predictor
 M1 <- glm(Exam ~ i.PhysAct, family="binomial", data=train)
 summary(M1)
@@ -144,24 +155,114 @@ M13 <- glm(Exam ~ i.PhysAct + BDI, family="binomial", data=train)
 summary(M13)
 #AIC = 74.633
 
-##--Training and evaluating the model-------------------------------------------
-#Train and predict
-model0 <- train(Exam ~ BDI, family="binomial", method="glm", data=train)
-summary(model0)
-preds <- predict(model0, test)
+#Final model: Exam ~ BDI
 
-#Confusion matrix and evaluation metrics
-confusionMatrix(preds, test$Exam)
-tableP_Y <- table(preds, test$Exam)
+##--Naive Bayes-----------------------------------------------------------------
+classifierNB <- naiveBayes(Exam ~ BDI, data = train)
+classifierNB
+
+# Predicting on test data
+y_predNB <- predict(classifierNB, newdata = test)
+
+# Model Evaluation
+confusionMatrix(data = y_predNB, reference = test$Exam)
 
 #Precision, recall, F-score
-precision(test$Exam, preds, cutoff = 0)
-recall(test$Exam, preds, cutoff = 0)
-F_meas(tableP_Y)
+precision(data = y_predNB, reference = test$Exam, cutoff = 0)
+recall(data = y_predNB, reference = test$Exam, cutoff = 0)
+F_meas(y_predNB, test$Exam)
 
 #ROC curve
-test$Exam <- as.numeric(as.character(test$Exam))
-preds <- as.numeric(as.character(preds))
-ROC <- roc(test$Exam, preds)
-plot(ROC, print.auc=TRUE)
-auc(ROC)
+y_predNB <- as.numeric(as.character(y_predNB))
+ROCNB <- roc(y_predNB, yTruth)
+plot(ROCNB, print.auc=TRUE)
+auc(ROCNB)
+
+##--Logistic regresion----------------------------------------------------------
+#Train and predict
+classifierLR <- train(Exam ~ BDI, family="binomial", method="glm", data=train)
+summary(classifierLR)
+y_predLR <- predict(classifierLR, test)
+
+#Confusion matrix and evaluation metrics
+y_predLR <- as.factor(y_predLR)
+confusionMatrix(data = y_predLR, reference = test$Exam)
+
+#Precision, recall, F-score
+precision(data = y_predLR, reference = test$Exam, cutoff = 0)
+recall(data = y_predLR, reference = test$Exam, cutoff = 0)
+F_meas(y_predLR, test$Exam)
+
+#ROC curve
+y_predLR <- as.numeric(as.character(y_predLR))
+ROCLR <- roc(y_predLR, yTruth)
+plot(ROCLR, print.auc=TRUE)
+auc(ROCLR)
+
+##--Support Vector Machine------------------------------------------------------
+train$Exam = factor(train$Exam, levels = c(0, 1))
+test$Exam = factor(test$Exam, levels = c(0, 1))
+trainSVM <- train[, c(5,7)] #variable selection
+testSVM <- test[, c(5,7)]
+
+#Hyperparameter tuning using Grid Search
+HPtuningSVM <- tune(svm, Exam ~ BDI , data = trainSVM,
+            ranges = list(gamma = 2^(-1:3), cost = 2^(0:5), kernel=c("linear", "polynomial","radial", "sigmoid")),
+            tunecontrol = tune.control(sampling = "fix")
+)
+summary(HPtuningSVM)
+
+classifierSVM = svm(formula = Exam ~ BDI,
+                 data = trainSVM,
+                 type = 'C-classification',
+                 kernel = 'sigmoid',
+                 gamma = 0.5,
+                 cost = 4)
+
+y_predSVM = predict(classifierSVM, testSVM)
+
+#Confusion matrix and evaluation metrics
+confusionMatrix(data = y_predSVM, reference = test$Exam)
+
+#Precision, recall, F-score
+precision(reference = test$Exam, data = y_predSVM, cutoff = 0)
+recall(reference = test$Exam, data = y_predSVM, cutoff = 0)
+F_meas(y_predSVM, test$Exam)
+
+#ROC curve
+y_predSVM <- as.numeric(as.character(y_predSVM))
+ROCSVM <- roc(y_predSVM, yTruth)
+plot(ROCSVM, print.auc=TRUE)
+auc(ROCSVM)
+
+##--K-Nearest Neighbour---------------------------------------------------------
+preproc <- preProcess(train, method="range")
+norm_train <- predict(preproc, train)
+summary(norm_train)
+trainKNN <- as.data.frame(norm_train[,7])
+
+preproc2 <- preProcess(test, method="range")
+norm_test <- predict(preproc2, test)
+summary(norm_test)
+testKNN <- as.data.frame(norm_test[,7])
+
+trainY <- as.numeric(as.character(train$Exam))
+testY <- as.numeric(as.character(test$Exam))
+
+knn.cross <- tune.knn(x = trainKNN, y = train$Exam, k = 1:20,tunecontrol=tune.control(sampling = "cross"), cross=10)
+summary(knn.cross)
+
+y_predsKNN <- knn(trainKNN, testKNN, cl=trainY,k=3)
+cmKNN <- table(y_predsKNN, testY)
+confusionMatrix(data = y_predsKNN, reference = test$Exam)
+
+#Precision, recall, F-score
+precision(data = y_predsKNN, reference = test$Exam, cutoff = 0)
+recall(data = y_predsKNN, reference = test$Exam, cutoff = 0)
+F_meas(y_predsKNN, test$Exam)
+
+#ROC curve
+y_predsKNN <- as.numeric(as.character(y_predsKNN))
+ROCKNN <- roc(y_predsKNN, yTruth)
+plot(ROCKNN, print.auc=TRUE)
+auc(ROCKNN)
